@@ -98,5 +98,46 @@ def timed_ban_check():
             })
     return jsonify({"banned": False})
 
+# NEW: Combined moderation endpoint for your bot at /api/moderate
+@app.route("/api/moderate", methods=["POST"])
+def moderate():
+    data = request.json
+    command = data.get("command")
+    user_id = data.get("user_id")
+    reason = data.get("reason", "No reason provided.")
+    admin = data.get("admin", "Unknown")
+
+    if not user_id or not command:
+        return jsonify({"error": "Missing user_id or command"}), 400
+
+    command = command.lower()
+
+    if command == "ban":
+        ban_data[user_id] = {"reason": reason, "admin": admin, "timestamp": time.time()}
+        return jsonify({"status": "banned", "user_id": user_id})
+    
+    elif command == "kick":
+        # Kick does not modify state, just returns info
+        return jsonify({
+            "status": "kick",
+            "user_id": user_id,
+            "reason": reason,
+            "admin": admin
+        })
+    
+    elif command == "unban":
+        if user_id in ban_data:
+            del ban_data[user_id]
+            return jsonify({"status": "unbanned", "user_id": user_id})
+        else:
+            return jsonify({"error": "User not banned"}), 404
+
+    else:
+        return jsonify({"error": f"Unknown command '{command}'"}), 400
+
 if __name__ == "__main__":
+    # Print all routes for debugging
+    for rule in app.url_map.iter_rules():
+        print(f"Route: {rule} - Methods: {rule.methods}")
+
     app.run(host="0.0.0.0", port=5000)
