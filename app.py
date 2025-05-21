@@ -3,7 +3,7 @@ import time
 
 app = Flask(__name__)
 
-# In-memory ban storage (replace with DB for production)
+# In-memory ban storage
 ban_data = {}
 timed_bans = {}
 
@@ -64,7 +64,7 @@ def ban_check():
 def timed_ban():
     data = request.json
     user_id = data.get("user_id")
-    duration = data.get("duration", 60)  # default 60 seconds
+    duration = data.get("duration", 60)
     reason = data.get("reason", "No reason provided.")
     admin = data.get("admin", "Unknown")
 
@@ -98,7 +98,7 @@ def timed_ban_check():
             })
     return jsonify({"banned": False})
 
-# NEW: Combined moderation endpoint for your bot at /api/moderate
+# ✅ NEW: Combined moderation command endpoint
 @app.route("/api/moderate", methods=["POST"])
 def moderate():
     data = request.json
@@ -117,7 +117,6 @@ def moderate():
         return jsonify({"status": "banned", "user_id": user_id})
     
     elif command == "kick":
-        # Kick does not modify state, just returns info
         return jsonify({
             "status": "kick",
             "user_id": user_id,
@@ -132,11 +131,55 @@ def moderate():
         else:
             return jsonify({"error": "User not banned"}), 404
 
-    else:
-        return jsonify({"error": f"Unknown command '{command}'"}), 400
+    elif command == "timedban":
+        duration = data.get("duration", 60)
+        expire_time = time.time() + duration
+        timed_bans[user_id] = {
+            "reason": reason,
+            "admin": admin,
+            "expire_time": expire_time
+        }
+        return jsonify({"status": "timed_banned", "user_id": user_id, "expires_in": duration})
+
+    return jsonify({"error": f"Unknown command '{command}'"}), 400
+
+# ✅ NEW: Used by Roblox to check if a user is banned or timed-banned
+@app.route("/api/isBanned/<user_id>", methods=["GET"])
+def is_banned(user_id):
+    if user_id in ban_data:
+        return jsonify({"banned": True, **ban_data[user_id]})
+    
+    timed = timed_bans.get(user_id)
+    if timed:
+        if time.time() >= timed["expire_time"]:
+            del timed_bans[user_id]
+            return jsonify({"banned": False})
+        else:
+            return jsonify({
+                "banned": True,
+                "reason": timed["reason"],
+                "admin": timed["admin"],
+                "remaining": timed["expire_time"] - time.time()
+            })
+
+    return jsonify({"banned": False})
+
+# ✅ NEW: Returns all current bans and timed bans (for debugging)
+@app.route("/api/getActions", methods=["GET"])
+def get_actions():
+    actions = {
+        "bans": ban_data,
+        "timed_bans": {
+            k: {
+                "reason": v["reason"],
+                "admin": v["admin"],
+                "remaining": v["expire_time"] - time.time()
+            } for k, v in timed_bans.items() if v["expire_time"] > time.time()
+        }
+    }
+    return jsonify(actions)
 
 if __name__ == "__main__":
-    # Print all routes for debugging
     for rule in app.url_map.iter_rules():
         print(f"Route: {rule} - Methods: {rule.methods}")
 
